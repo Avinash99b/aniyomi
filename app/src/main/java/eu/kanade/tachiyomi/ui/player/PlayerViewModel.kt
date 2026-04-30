@@ -349,10 +349,11 @@ class PlayerViewModel @JvmOverloads constructor(
         val anime = currentAnime.value ?: return null
         val episode = currentEpisode.value ?: return null
         val source = currentSource.value ?: return null
-        return source is AnimeHttpSource && !EpisodeLoader.isDownload(
-            episode.toDomainEpisode()!!,
-            anime,
-        )
+        return source is AnimeHttpSource &&
+            !EpisodeLoader.isDownload(
+                episode.toDomainEpisode()!!,
+                anime,
+            )
     }
 
     fun updateIsLoadingEpisode(value: Boolean) {
@@ -775,7 +776,7 @@ class PlayerViewModel @JvmOverloads constructor(
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-                -> {
+            -> {
                 playerPreferences.defaultPlayerOrientationType().set(PlayerOrientation.SensorPortrait)
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
@@ -1092,8 +1093,10 @@ class PlayerViewModel @JvmOverloads constructor(
             ?: error("Requested episode of id $episodeId not found in episode list")
 
         val episodesForPlayer = episodes.filterNot {
-            anime.unseenFilterRaw == Anime.EPISODE_SHOW_SEEN && !it.seen ||
-                anime.unseenFilterRaw == Anime.EPISODE_SHOW_UNSEEN && it.seen ||
+            anime.unseenFilterRaw == Anime.EPISODE_SHOW_SEEN &&
+                !it.seen ||
+                anime.unseenFilterRaw == Anime.EPISODE_SHOW_UNSEEN &&
+                it.seen ||
                 anime.downloadedFilterRaw == Anime.EPISODE_SHOW_DOWNLOADED &&
                 !downloadManager.isEpisodeDownloaded(
                     it.name,
@@ -1108,10 +1111,14 @@ class PlayerViewModel @JvmOverloads constructor(
                     anime.title,
                     anime.source,
                 ) ||
-                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_BOOKMARKED && !it.bookmark ||
-                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_NOT_BOOKMARKED && it.bookmark ||
-                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_FILLERMARKED && !it.fillermark ||
-                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_NOT_FILLERMARKED && it.fillermark
+                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_BOOKMARKED &&
+                !it.bookmark ||
+                anime.bookmarkedFilterRaw == Anime.EPISODE_SHOW_NOT_BOOKMARKED &&
+                it.bookmark ||
+                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_FILLERMARKED &&
+                !it.fillermark ||
+                anime.fillermarkedFilterRaw == Anime.EPISODE_SHOW_NOT_FILLERMARKED &&
+                it.fillermark
         }.toMutableList()
 
         if (episodesForPlayer.all { it.id != episodeId }) {
