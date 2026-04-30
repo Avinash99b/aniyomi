@@ -9,6 +9,12 @@ on:
       - '*'
     tags:
       - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.2.3) — required to sign & release'
+        required: false
+        default: ''
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -53,17 +59,22 @@ jobs:
           name: mapping-${{ github.sha }}
           path: app/build/outputs/mapping/release
 
-      # Sign APK and create release for tags
-
-      - name: Get tag name
-
-        if: startsWith(github.ref, 'refs/tags/') && github.repository == 'aniyomiorg/aniyomi'
+      # Determine if we should sign and release
+      - name: Resolve version tag
+        id: resolve_tag
         run: |
-          set -x
-          echo "VERSION_TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
+            echo "VERSION_TAG=${{ github.event.inputs.tag }}" >> $GITHUB_ENV
+            echo "SHOULD_RELEASE=true" >> $GITHUB_ENV
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "VERSION_TAG=${GITHUB_REF/refs\/tags\//}" >> $GITHUB_ENV
+            echo "SHOULD_RELEASE=true" >> $GITHUB_ENV
+          else
+            echo "SHOULD_RELEASE=false" >> $GITHUB_ENV
+          fi
 
       - name: Sign APK
-        if: startsWith(github.ref, 'refs/tags/') && github.repository == 'aniyomiorg/aniyomi'
+        if: env.SHOULD_RELEASE == 'true' && github.repository == 'aniyomiorg/aniyomi'
         uses: r0adkll/sign-android-release@f30bdd30588842ac76044ecdbd4b6d0e3e813478
         with:
           releaseDirectory: app/build/outputs/apk/release
@@ -75,7 +86,7 @@ jobs:
           BUILD_TOOLS_VERSION: '35.0.1'
 
       - name: Clean up build artifacts
-        if: startsWith(github.ref, 'refs/tags/') && github.repository == 'aniyomiorg/aniyomi'
+        if: env.SHOULD_RELEASE == 'true' && github.repository == 'aniyomiorg/aniyomi'
         run: |
           set -e
 
@@ -100,7 +111,7 @@ jobs:
           echo "APK_X86_64_SHA=$sha" >> $GITHUB_ENV
 
       - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/') && github.repository == 'aniyomiorg/aniyomi'
+        if: env.SHOULD_RELEASE == 'true' && github.repository == 'aniyomiorg/aniyomi'
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           tag_name: ${{ env.VERSION_TAG }}
