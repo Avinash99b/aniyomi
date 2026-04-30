@@ -1281,12 +1281,12 @@ class PlayerViewModel @JvmOverloads constructor(
         val episodes = runBlocking { getEpisodesByAnimeId.await(anime.id) }
 
         return episodes.sortedWith(getEpisodeSort(anime, sortDescending = false)).run {
-                if (basePreferences.downloadedOnly().get()) {
-                    filterDownloadedEpisodes(anime)
-                } else {
-                    this
-                }
-            }.map { it.toDbEpisode() }
+            if (basePreferences.downloadedOnly().get()) {
+                filterDownloadedEpisodes(anime)
+            } else {
+                this
+            }
+        }.map { it.toDbEpisode() }
     }
 
     private var hasTrackers: Boolean = false
@@ -1594,12 +1594,12 @@ class PlayerViewModel @JvmOverloads constructor(
         if (!markDuplicateAsSeen) return
 
         val duplicateUnseenEpisodes = currentPlaylist.value.mapNotNull { episode ->
-                if (!episode.seen && episode.isRecognizedNumber && episode.episode_number == currentEp.episode_number) {
-                    EpisodeUpdate(id = episode.id!!, seen = true)
-                } else {
-                    null
-                }
+            if (!episode.seen && episode.isRecognizedNumber && episode.episode_number == currentEp.episode_number) {
+                EpisodeUpdate(id = episode.id!!, seen = true)
+            } else {
+                null
             }
+        }
         updateEpisode.awaitAll(duplicateUnseenEpisodes)
     }
 
@@ -1615,7 +1615,8 @@ class PlayerViewModel @JvmOverloads constructor(
         val episodesAreDownloaded = EpisodeLoader.isDownload(
             currentEpisode.toDomainEpisode()!!,
             anime,
-        ) && EpisodeLoader.isDownload(nextEpisode.toDomainEpisode()!!, anime)
+        ) &&
+            EpisodeLoader.isDownload(nextEpisode.toDomainEpisode()!!, anime)
 
         viewModelScope.launchIO {
             if (!episodesAreDownloaded) {
