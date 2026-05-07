@@ -1260,6 +1260,7 @@ class PlayerActivity : BaseActivity() {
         }
 
         viewModel.isLoadingTracks.update { _ -> false }
+        viewModel.loadTracks()
     }
 
     private fun setupChapters() {
