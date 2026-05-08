@@ -447,8 +447,6 @@ class PlayerViewModel @JvmOverloads constructor(
         }
 
         isLoadingTracks.update { _ -> true }
-        updateIsLoadingEpisode(false)
-        setPausedState()
     }
 
     @Immutable
@@ -1453,6 +1451,8 @@ class PlayerViewModel @JvmOverloads constructor(
         qualityIndex = Pair(hosterIndex, videoIndex)
 
         activity.setVideo(resolvedVideo)
+        updateIsLoadingEpisode(false)
+        setPausedState()
         return true
     }
 
