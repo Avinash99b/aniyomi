@@ -74,8 +74,12 @@ import eu.kanade.tachiyomi.ui.player.settings.AdvancedPlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
+import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
+import eu.kanade.tachiyomi.util.system.notificationBuilder
+import eu.kanade.tachiyomi.util.system.notify
 import eu.kanade.tachiyomi.util.system.powerManager
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
@@ -102,6 +106,8 @@ import tachiyomi.i18n.aniyomi.AYMR
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.IOException
+import java.net.HttpURLConnection
+import java.net.URL
 import java.io.InputStream
 import java.io.OutputStream
 import kotlin.math.ceil
@@ -133,6 +139,9 @@ class PlayerActivity : BaseActivity() {
     }
 
     private var pipReceiver: BroadcastReceiver? = null
+
+    private var hasStartedNextEpisodePrecache = false
+    private var precachedEpisodeId: Long? = null
 
     private val noisyReceiver = object : BroadcastReceiver() {
         var initialized = false
@@ -189,6 +198,8 @@ class PlayerActivity : BaseActivity() {
         )
 
         viewModel.saveCurrentEpisodeWatchingProgress()
+        hasStartedNextEpisodePrecache = false
+        precachedEpisodeId = null
 
         lifecycleScope.launchNonCancellable {
             viewModel.updateIsLoadingEpisode(true)
@@ -311,6 +322,8 @@ class PlayerActivity : BaseActivity() {
 
     override fun onPause() {
         viewModel.saveCurrentEpisodeWatchingProgress()
+        hasStartedNextEpisodePrecache = false
+        precachedEpisodeId = null
 
         if (isInPictureInPictureMode) {
             super.onPause()
@@ -655,6 +668,7 @@ class PlayerActivity : BaseActivity() {
             "time-pos" -> {
                 viewModel.updatePlayBackPos(value.toFloat())
                 viewModel.setChapter(value.toFloat())
+                maybeStartNextEpisodePrecache(value.toFloat())
             }
             "demuxer-cache-time" -> viewModel.updateReadAhead(value = value)
             "volume" -> viewModel.setMPVVolume(value.toInt())
@@ -817,6 +831,79 @@ class PlayerActivity : BaseActivity() {
         }
 
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+    }
+
+    private fun maybeStartNextEpisodePrecache(currentPositionSeconds: Float) {
+        if (hasStartedNextEpisodePrecache) return
+
+        val duration = viewModel.duration.value
+        if (duration <= 0f) return
+
+        val secondsRemaining = duration - currentPositionSeconds
+        if (secondsRemaining > 120f) return
+
+        val nextEpisode = viewModel.currentPlaylist.value.getOrNull(viewModel.getCurrentEpisodeIndex() + 1) ?: return
+        if (precachedEpisodeId == nextEpisode.id) return
+
+        hasStartedNextEpisodePrecache = true
+        precachedEpisodeId = nextEpisode.id
+        showPrecacheStartedNotification(nextEpisode.name)
+
+        lifecycleScope.launchIO {
+            runCatching {
+                val anime = viewModel.currentAnime.value ?: return@runCatching
+                val source = viewModel.currentSource.value ?: return@runCatching
+                val domainEpisode = nextEpisode.toDomainEpisode() ?: return@runCatching
+
+                val hosters = EpisodeLoader.getHosters(domainEpisode, anime, source)
+                if (hosters.isEmpty()) return@runCatching
+
+                val video = HosterLoader.getBestVideo(source, hosters) ?: return@runCatching
+                preCacheVideoBytes(video.videoUrl)
+            }.onFailure {
+                hasStartedNextEpisodePrecache = false
+                logcat(LogPriority.DEBUG, it) { "Failed next episode precache" }
+            }
+        }
+    }
+
+    private fun preCacheVideoBytes(videoUrl: String) {
+        if (videoUrl.isBlank()) return
+        if (!videoUrl.startsWith("http")) return
+
+        val connection = (URL(videoUrl).openConnection() as? HttpURLConnection) ?: return
+        connection.requestMethod = "GET"
+        connection.setRequestProperty("Range", "bytes=0-262143")
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 15_000
+        connection.instanceFollowRedirects = true
+
+        connection.inputStream.use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var bytesRead = 0
+            var totalRead = 0
+            while (bytesRead != -1 && totalRead < 262_144) {
+                bytesRead = input.read(buffer, 0, minOf(buffer.size, 262_144 - totalRead))
+                if (bytesRead > 0) totalRead += bytesRead
+            }
+        }
+        connection.disconnect()
+    }
+
+    private fun showPrecacheStartedNotification(nextEpisodeName: String) {
+        applicationContext.notify(
+            id = (Notifications.ID_DOWNLOAD_EPISODE_PROGRESS - 10),
+            notification = applicationContext.notificationBuilder(Notifications.CHANNEL_COMMON) {
+                setSmallIcon(android.R.drawable.stat_sys_download)
+                setContentTitle("Pre-caching next episode")
+                setContentText(nextEpisodeName)
+                setSilent(true)
+                setOngoing(false)
+                setAutoCancel(true)
+                setOnlyAlertOnce(true)
+                setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+            }.build(),
+        )
     }
 
     private fun setupPlayerOrientation() {
