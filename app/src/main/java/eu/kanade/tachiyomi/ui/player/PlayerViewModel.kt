@@ -76,6 +76,7 @@ import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
+import eu.kanade.tachiyomi.ui.player.utils.PlayerCacheUtil
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
 import eu.kanade.tachiyomi.ui.reader.SaveImageNotifier
 import eu.kanade.tachiyomi.util.editBackground
@@ -90,6 +91,8 @@ import eu.kanade.tachiyomi.util.system.toast
 import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -98,11 +101,15 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -770,7 +777,7 @@ class PlayerViewModel @JvmOverloads constructor(
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-            -> {
+                -> {
                 playerPreferences.defaultPlayerOrientationType().set(PlayerOrientation.SensorPortrait)
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
@@ -796,6 +803,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     "toggle" -> {
                         if (controlsShown.value) hideControls() else showControls()
                     }
+
                     "hide" -> {
                         sheetShown.update { Sheets.None }
                         panelShown.update { Panels.None }
@@ -804,6 +812,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     }
                 }
             }
+
             "show_panel" -> {
                 when (data) {
                     "subtitle_settings" -> showPanel(Panels.SubtitleSettings)
@@ -812,20 +821,24 @@ class PlayerViewModel @JvmOverloads constructor(
                     "video_filters" -> showPanel(Panels.VideoFilters)
                 }
             }
+
             "set_button_title" -> {
                 _primaryButtonTitle.update { _ -> data }
             }
+
             "reset_button_title" -> {
                 _customButtons.value.getButtons().firstOrNull { it.isFavorite }?.let {
                     setPrimaryCustomButtonTitle(it)
                 }
             }
+
             "switch_episode" -> {
                 when (data) {
                     "n" -> changeEpisode(false)
                     "p" -> changeEpisode(true)
                 }
             }
+
             "launch_int_picker" -> {
                 val (title, nameFormat, start, stop, step, pickerProperty) = data.split("|")
                 val defaultValue = MPVLib.getPropertyInt(pickerProperty)
@@ -842,6 +855,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     ),
                 )
             }
+
             "pause" -> {
                 when (data) {
                     "pause" -> pause()
@@ -849,14 +863,17 @@ class PlayerViewModel @JvmOverloads constructor(
                     "pauseunpause" -> pauseUnpause()
                 }
             }
+
             "seek_to_with_text" -> {
                 val (seekValue, text) = data.split("|", limit = 2)
                 seekToWithText(seekValue.toInt(), text)
             }
+
             "seek_by_with_text" -> {
                 val (seekValue, text) = data.split("|", limit = 2)
                 seekByWithText(seekValue.toInt(), text)
             }
+
             "seek_by" -> seekByWithText(data.toInt(), null)
             "seek_to" -> seekToWithText(data.toInt(), null)
             "toggle_button" -> {
@@ -976,12 +993,15 @@ class PlayerViewModel @JvmOverloads constructor(
             SingleActionGesture.Seek -> {
                 leftSeek()
             }
+
             SingleActionGesture.PlayPause -> {
                 pauseUnpause()
             }
+
             SingleActionGesture.Custom -> {
                 MPVLib.command(arrayOf("keypress", CustomKeyCodes.DoubleTapLeft.keyCode))
             }
+
             SingleActionGesture.None -> {}
             SingleActionGesture.Switch -> changeEpisode(true)
         }
@@ -992,9 +1012,11 @@ class PlayerViewModel @JvmOverloads constructor(
             SingleActionGesture.PlayPause -> {
                 pauseUnpause()
             }
+
             SingleActionGesture.Custom -> {
                 MPVLib.command(arrayOf("keypress", CustomKeyCodes.DoubleTapCenter.keyCode))
             }
+
             SingleActionGesture.Seek -> {}
             SingleActionGesture.None -> {}
             SingleActionGesture.Switch -> {}
@@ -1006,12 +1028,15 @@ class PlayerViewModel @JvmOverloads constructor(
             SingleActionGesture.Seek -> {
                 rightSeek()
             }
+
             SingleActionGesture.PlayPause -> {
                 pauseUnpause()
             }
+
             SingleActionGesture.Custom -> {
                 MPVLib.command(arrayOf("keypress", CustomKeyCodes.DoubleTapRight.keyCode))
             }
+
             SingleActionGesture.None -> {}
             SingleActionGesture.Switch -> changeEpisode(false)
         }
@@ -1182,8 +1207,16 @@ class PlayerViewModel @JvmOverloads constructor(
         val defaultResult = InitResult(currentHosterList, qualityIndex, null)
         if (!needsInit(animeId, initialEpisodeId)) return Pair(defaultResult, Result.success(true))
         return try {
-            val anime = getAnime.await(animeId)
+
+            //Now implementing Caching
+            var anime = PlayerCacheUtil.findCachedAnime( animeId)
+            if (anime == null)
+                anime = getAnime.await(animeId)
+
             if (anime != null) {
+                withContext(Dispatchers.IO) {
+                    getAnime.await(animeId)?.let { PlayerCacheUtil.cacheAnime( anime) }
+                }
                 _currentAnime.update { _ -> anime }
                 animeTitle.update { _ -> anime.title }
                 sourceManager.isInitialized.first { it }
@@ -1273,7 +1306,16 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private var hasTrackers: Boolean = false
     private val checkTrackers: (Anime) -> Unit = { anime ->
-        val tracks = runBlocking { getTracks.await(anime.id) }
+        var tracks = PlayerCacheUtil.findCachedTracks( anime.id)
+        if (tracks == null) {
+            tracks = runBlocking { getTracks.await(anime.id) }
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+
+            tracks = getTracks.await(anime.id)
+            PlayerCacheUtil.cacheTracks( anime.id, tracks)
+        }
+
         hasTrackers = tracks.isNotEmpty()
     }
 
@@ -1470,6 +1512,7 @@ class PlayerViewModel @JvmOverloads constructor(
             is HosterState.Ready -> {
                 _hosterExpandedList.updateAt(index, !_hosterExpandedList.value[index])
             }
+
             is HosterState.Idle -> {
                 val hosterName = hosterList.value[index].hosterName
                 _hosterState.updateAt(index, HosterState.Loading(hosterName))
@@ -1483,6 +1526,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     _hosterState.updateAt(index, hosterState)
                 }
             }
+
             is HosterState.Loading, is HosterState.Error -> {}
         }
     }
@@ -1962,11 +2006,13 @@ class PlayerViewModel @JvmOverloads constructor(
                     // show a toast with the seconds before the skip
                     if (waitingSkipIntro == defaultWaitingTime) {
                         activity.showToast(
-                            "Skip Intro: ${activity.stringResource(
-                                AYMR.strings.player_aniskip_dontskip_toast,
-                                chapter.name,
-                                waitingSkipIntro,
-                            )}",
+                            "Skip Intro: ${
+                                activity.stringResource(
+                                    AYMR.strings.player_aniskip_dontskip_toast,
+                                    chapter.name,
+                                    waitingSkipIntro,
+                                )
+                            }",
                         )
                     }
                     showSkipIntroButton(chapter, nextChapterPos, waitingSkipIntro)

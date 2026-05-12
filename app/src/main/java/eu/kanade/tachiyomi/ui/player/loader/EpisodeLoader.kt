@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.ui.player.loader
 
+import android.app.Application
+import android.content.Context
 import eu.kanade.domain.items.episode.model.toSEpisode
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.Hoster
@@ -9,13 +11,18 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
+import eu.kanade.tachiyomi.ui.player.utils.PlayerCacheUtil
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.items.episode.model.Episode
 import tachiyomi.source.local.entries.anime.LocalAnimeSource
 import tachiyomi.source.local.io.anime.LocalAnimeSourceFileSystem
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Loader used to retrieve the hosters for a given episode.
@@ -34,7 +41,7 @@ class EpisodeLoader {
             val isDownloaded = isDownload(episode, anime)
             return when {
                 isDownloaded -> getHostersOnDownloaded(episode, anime, source)
-                source is AnimeHttpSource -> getHostersOnHttp(episode, source)
+                source is AnimeHttpSource -> getHostersOnHttp( anime, episode, source)
                 source is LocalAnimeSource -> getHostersOnLocal(episode)
                 else -> error("source not supported")
             }
@@ -77,15 +84,35 @@ class EpisodeLoader {
             }
         }
 
+
         /**
          * Returns a list of hosters when the [episode] is online.
          *
          * @param episode the episode being parsed.
          * @param source the online source of the episode.
          */
-        private suspend fun getHostersOnHttp(episode: Episode, source: AnimeHttpSource): List<Hoster> {
+        private suspend fun getHostersOnHttp(anime: Anime, episode: Episode, source: AnimeHttpSource): List<Hoster> {
             // TODO(1.6): Remove else block when dropping support for ext lib <1.6
-            return if (checkHasHosters(source)) {
+            //Use cache first
+            val cache = PlayerCacheUtil.findCachedHosters(anime.id,episode.id)
+            if (cache != null) {
+                CoroutineScope(Dispatchers.IO).launch{
+                    val hosters = if (checkHasHosters(source)) {
+                        source.getHosterList(episode.toSEpisode())
+                            .let { source.run { it.sortHosters() } }
+                    } else {
+                        source.getVideoList(episode.toSEpisode())
+                            .let { source.run { it.sortVideos() } }
+                            .toHosterList()
+                    }
+                    if (hosters.isNotEmpty()) {
+                        PlayerCacheUtil.cacheHosters( anime.id, episode.id, hosters)
+                    }
+                }
+                return cache
+            }
+
+            val hosters = if (checkHasHosters(source)) {
                 source.getHosterList(episode.toSEpisode())
                     .let { source.run { it.sortHosters() } }
             } else {
@@ -93,6 +120,11 @@ class EpisodeLoader {
                     .let { source.run { it.sortVideos() } }
                     .toHosterList()
             }
+            if (hosters.isNotEmpty()) {
+                PlayerCacheUtil.cacheHosters( anime.id, episode.id, hosters)
+            }
+
+            return hosters
         }
 
         /**

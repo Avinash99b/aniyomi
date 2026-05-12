@@ -2,6 +2,7 @@ package tachiyomi.domain.track.anime.model
 
 import java.io.Serializable
 
+@kotlinx.serialization.Serializable
 data class AnimeTrack(
     val id: Long,
     val animeId: Long,
