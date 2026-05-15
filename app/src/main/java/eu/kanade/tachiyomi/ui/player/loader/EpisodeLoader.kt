@@ -178,6 +178,7 @@ class EpisodeLoader {
          * Returns a list of videos of a [hoster] based on the type of [source] used.
          * Note that for every type of episode except non-downloaded online, `videoList`
          * will be set to null.
+         * Important Note: This function sorts the videos according to users preferences if the source is an [AnimeHttpSource].
          *
          * @param source the source of the anime.
          * @param hoster the hoster.
@@ -218,6 +219,10 @@ class EpisodeLoader {
             }
         }
 
+        /***
+         * Loads the videos of a hoster, returning the state of the hoster after loading.
+         * The getVideos function internally sorts the videos according to user preferences if the source is an [AnimeHttpSource], so no need to sort them again.
+         */
         suspend fun loadHosterVideos(source: AnimeSource, hoster: Hoster, force: Boolean = false): HosterState {
             if (!force && hoster.lazy) {
                 return HosterState.Idle(hoster.hosterName)
