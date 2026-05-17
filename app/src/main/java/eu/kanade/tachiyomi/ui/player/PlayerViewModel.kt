@@ -26,7 +26,6 @@ import android.app.Application
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
-import android.media.MediaSession2Service
 import android.net.Uri
 import android.provider.Settings
 import android.util.DisplayMetrics
@@ -61,7 +60,6 @@ import eu.kanade.tachiyomi.data.database.models.anime.isRecognizedNumber
 import eu.kanade.tachiyomi.data.database.models.anime.toDomainEpisode
 import eu.kanade.tachiyomi.data.database.models.manga.isRecognizedNumber
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
-import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadNotifier
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.saver.Image
@@ -108,8 +106,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.take
@@ -789,7 +785,7 @@ class PlayerViewModel @JvmOverloads constructor(
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-                -> {
+            -> {
                 playerPreferences.defaultPlayerOrientationType().set(PlayerOrientation.SensorPortrait)
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
@@ -1219,11 +1215,11 @@ class PlayerViewModel @JvmOverloads constructor(
         val defaultResult = InitResult(currentHosterList, qualityIndex, null)
         if (!needsInit(animeId, initialEpisodeId)) return Pair(defaultResult, Result.success(true))
         return try {
-
-            //Now implementing Caching
+            // Now implementing Caching
             var anime = PlayerCacheUtil.findCachedAnime(animeId)
-            if (anime == null)
+            if (anime == null) {
                 anime = getAnime.await(animeId)
+            }
 
             if (anime != null) {
                 withContext(Dispatchers.IO) {
@@ -1373,11 +1369,9 @@ class PlayerViewModel @JvmOverloads constructor(
                         async {
                             val hosterState = EpisodeLoader.loadHosterVideos(source, hoster)
 
-
                             _hosterState.updateAt(hosterIdx, hosterState)
 
                             if (hosterState is HosterState.Ready) {
-
                                 val cacheResult = cacheManager.stopCachingEpisode()
                                 val video = hosterState.videoList.first()
                                 if (video.videoUrl == cacheResult?.video?.videoUrl) {
@@ -1571,7 +1565,6 @@ class PlayerViewModel @JvmOverloads constructor(
         val chosenEpisode = currentPlaylist.value.firstOrNull { ep -> ep.id == episodeId } ?: return null
 
         return withIOContext {
-
             try {
                 val resultHosterList = EpisodeLoader.getHosters(
                     chosenEpisode.toDomainEpisode()!!,
@@ -1588,8 +1581,6 @@ class PlayerViewModel @JvmOverloads constructor(
                 logcat(LogPriority.ERROR, e) { e.message ?: "Error getting links" }
                 null
             }
-
-
         }
     }
 
@@ -1600,7 +1591,6 @@ class PlayerViewModel @JvmOverloads constructor(
         cachingStarted.set(false)
         return getEpisode(episodeId)
     }
-
 
     private val cachingStarted = AtomicBoolean(false)
 

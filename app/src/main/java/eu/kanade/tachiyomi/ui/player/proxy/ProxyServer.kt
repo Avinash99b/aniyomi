@@ -2,7 +2,6 @@ package eu.kanade.tachiyomi.ui.player.proxy
 
 import android.content.Context
 import eu.kanade.tachiyomi.ui.player.cache.CacheData
-import eu.kanade.tachiyomi.ui.player.cache.StreamChunk
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.cio.CIO
@@ -15,7 +14,6 @@ import io.ktor.server.response.respondFile
 import io.ktor.server.response.respondRedirect
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
-import kotlinx.coroutines.delay
 import tachiyomi.core.common.util.system.logcat
 import java.io.File
 import java.net.URLEncoder
@@ -30,17 +28,16 @@ class ProxyServer(
     private var cacheData: CacheData? = null
 
     fun started(): Boolean {
-        return server!=null
+        return server != null
     }
     suspend fun start() {
         stop()
 
         server = embeddedServer(CIO, port = 8080) {
-
             routing {
                 get("/chunk/{segmentIdx}") {
-                    if(cacheData==null)return@get
-                    if(cacheData !is CacheData.HLSStream)return@get
+                    if (cacheData == null)return@get
+                    if (cacheData !is CacheData.HLSStream)return@get
                     val streamChunks = (cacheData as CacheData.HLSStream).streamChunks
                     val segmentIdx = call.parameters["segmentIdx"]?.toIntOrNull()
                         ?: return@get call.respond(HttpStatusCode.BadRequest)
@@ -51,13 +48,16 @@ class ProxyServer(
                         call.respondFile(chunk.chunkFile)
                     } else {
                         val redirect = chunk?.segment?.originalUrl
-                        if (redirect != null) call.respondRedirect(redirect)
-                        else call.respond(HttpStatusCode.NotFound)
+                        if (redirect != null) {
+                            call.respondRedirect(redirect)
+                        } else {
+                            call.respond(HttpStatusCode.NotFound)
+                        }
                     }
                 }
                 get("/direct_video.mp4") {
-                    if(cacheData==null) return@get
-                    if(cacheData !is CacheData.DirectVideo)return@get
+                    if (cacheData == null) return@get
+                    if (cacheData !is CacheData.DirectVideo)return@get
                     val directVideoFile = (cacheData as CacheData.DirectVideo).file
                     val orgUrl = call.request.queryParameters["orgUrl"]
                     if (directVideoFile.exists()) {
@@ -72,8 +72,11 @@ class ProxyServer(
                     val filePath = call.request.queryParameters["filePath"]
                     if (filePath != null) {
                         val file = File(filePath)
-                        if (file.exists()) call.respondFile(file)
-                        else call.respond(HttpStatusCode.NotFound)
+                        if (file.exists()) {
+                            call.respondFile(file)
+                        } else {
+                            call.respond(HttpStatusCode.NotFound)
+                        }
                     } else {
                         call.respond(HttpStatusCode.BadRequest)
                     }
@@ -81,11 +84,10 @@ class ProxyServer(
             }
         }
         server?.start(wait = false)
-
     }
 
-    fun updateCache(cacheData: CacheData){
-        this.cacheData=cacheData
+    fun updateCache(cacheData: CacheData) {
+        this.cacheData = cacheData
     }
     fun stop() {
         try {

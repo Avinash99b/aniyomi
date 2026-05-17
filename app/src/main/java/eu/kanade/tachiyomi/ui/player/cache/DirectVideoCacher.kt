@@ -9,9 +9,7 @@ import io.ktor.utils.io.copyTo
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import java.io.File
-
 
 object DirectVideoCacher {
     val httpClient = HttpClient()

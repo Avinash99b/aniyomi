@@ -17,20 +17,21 @@ import uy.kohesive.injekt.api.get
 
 object PlayerCacheUtil {
 
-
     private val cacheUtilPrefsKey = "PlayerCacheUtil"
 
-
-    fun sharedPrefs(): SharedPreferences = Injekt.get<Application>().getSharedPreferences(cacheUtilPrefsKey, Context.MODE_PRIVATE)
-    fun cacheAnime(anime: Anime){
+    fun sharedPrefs(): SharedPreferences = Injekt.get<Application>().getSharedPreferences(
+        cacheUtilPrefsKey,
+        Context.MODE_PRIVATE,
+    )
+    fun cacheAnime(anime: Anime) {
         val animeString = Json.encodeToString(Anime.serializer(), anime)
 
-       sharedPrefs().edit(commit = true) {
-           putString("anime_${anime.id}", animeString)
-       }
+        sharedPrefs().edit(commit = true) {
+            putString("anime_${anime.id}", animeString)
+        }
     }
 
-    fun cacheTracks(animeId: Long, tracks: List<AnimeTrack>){
+    fun cacheTracks(animeId: Long, tracks: List<AnimeTrack>) {
         val tracksString = Json.encodeToString(ListSerializer(AnimeTrack.serializer()), tracks)
         sharedPrefs().edit(commit = true) {
             putString("tracks_$animeId", tracksString)
@@ -43,7 +44,6 @@ object PlayerCacheUtil {
             logcat { "Using cached tracks $tracksString" }
 
             Json.decodeFromString(ListSerializer(AnimeTrack.serializer()), tracksString)
-
         } else {
             null
         }
@@ -59,14 +59,14 @@ object PlayerCacheUtil {
         }
     }
 
-    fun cacheHosters(animeId: Long,episodeId: Long, hosters: List<Hoster>) {
+    fun cacheHosters(animeId: Long, episodeId: Long, hosters: List<Hoster>) {
         val hostersString = hosters.serialize()
         sharedPrefs().edit(commit = true) {
             putString("hosters_$animeId\\_$episodeId", hostersString)
         }
     }
 
-    fun findCachedHosters(animeId: Long,episodeId: Long): List<Hoster>? {
+    fun findCachedHosters(animeId: Long, episodeId: Long): List<Hoster>? {
         val hostersString = sharedPrefs().getString("hosters_$animeId\\_$episodeId", null)
         return if (hostersString != null) {
             logcat { "Using cached hosters $hostersString" }

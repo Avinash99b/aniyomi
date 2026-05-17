@@ -1,7 +1,5 @@
 package eu.kanade.tachiyomi.ui.player.loader
 
-import android.app.Application
-import android.content.Context
 import eu.kanade.domain.items.episode.model.toSEpisode
 import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.Hoster
@@ -22,7 +20,6 @@ import tachiyomi.source.local.entries.anime.LocalAnimeSource
 import tachiyomi.source.local.io.anime.LocalAnimeSourceFileSystem
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import kotlin.coroutines.CoroutineContext
 
 /**
  * Loader used to retrieve the hosters for a given episode.
@@ -41,7 +38,7 @@ class EpisodeLoader {
             val isDownloaded = isDownload(episode, anime)
             return when {
                 isDownloaded -> getHostersOnDownloaded(episode, anime, source)
-                source is AnimeHttpSource -> getHostersOnHttp( anime, episode, source)
+                source is AnimeHttpSource -> getHostersOnHttp(anime, episode, source)
                 source is LocalAnimeSource -> getHostersOnLocal(episode)
                 else -> error("source not supported")
             }
@@ -84,7 +81,6 @@ class EpisodeLoader {
             }
         }
 
-
         /**
          * Returns a list of hosters when the [episode] is online.
          *
@@ -93,10 +89,10 @@ class EpisodeLoader {
          */
         private suspend fun getHostersOnHttp(anime: Anime, episode: Episode, source: AnimeHttpSource): List<Hoster> {
             // TODO(1.6): Remove else block when dropping support for ext lib <1.6
-            //Use cache first
-            val cache = PlayerCacheUtil.findCachedHosters(anime.id,episode.id)
+            // Use cache first
+            val cache = PlayerCacheUtil.findCachedHosters(anime.id, episode.id)
             if (cache != null) {
-                CoroutineScope(Dispatchers.IO).launch{
+                CoroutineScope(Dispatchers.IO).launch {
                     val hosters = if (checkHasHosters(source)) {
                         source.getHosterList(episode.toSEpisode())
                             .let { source.run { it.sortHosters() } }
@@ -106,7 +102,7 @@ class EpisodeLoader {
                             .toHosterList()
                     }
                     if (hosters.isNotEmpty()) {
-                        PlayerCacheUtil.cacheHosters( anime.id, episode.id, hosters)
+                        PlayerCacheUtil.cacheHosters(anime.id, episode.id, hosters)
                     }
                 }
                 return cache
@@ -121,7 +117,7 @@ class EpisodeLoader {
                     .toHosterList()
             }
             if (hosters.isNotEmpty()) {
-                PlayerCacheUtil.cacheHosters( anime.id, episode.id, hosters)
+                PlayerCacheUtil.cacheHosters(anime.id, episode.id, hosters)
             }
 
             return hosters

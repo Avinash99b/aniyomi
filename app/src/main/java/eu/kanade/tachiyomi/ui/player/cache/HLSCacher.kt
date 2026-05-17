@@ -14,7 +14,6 @@ object HLSCacher {
         segment: Segment,
         cacheDir: File,
     ): File {
-
         val request = Request.Builder()
             .url(segment.originalUrl)
             .apply {
@@ -28,7 +27,7 @@ object HLSCacher {
 
             if (!response.isSuccessful) {
                 throw IOException(
-                    "Failed to download segment ${segment.idx}: ${response.code}"
+                    "Failed to download segment ${segment.idx}: ${response.code}",
                 )
             }
 
@@ -36,7 +35,7 @@ object HLSCacher {
 
             val tempFile = File(
                 cacheDir,
-                "segment_${segment.idx}.tmp"
+                "segment_${segment.idx}.tmp",
             )
 
             body.byteStream().buffered().use { input ->
@@ -47,7 +46,7 @@ object HLSCacher {
 
             val finalFile = File(
                 cacheDir,
-                "segment_${segment.idx}.ts"
+                "segment_${segment.idx}.ts",
             )
 
             if (!tempFile.renameTo(finalFile)) {

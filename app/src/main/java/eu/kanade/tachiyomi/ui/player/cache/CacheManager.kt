@@ -21,7 +21,7 @@ private const val PARALLEL_CHUNK_COUNT = 4
 
 data class StreamChunk(
     val chunkFile: File,
-    val segment: Segment
+    val segment: Segment,
 )
 
 sealed class CacheData {
@@ -42,12 +42,12 @@ sealed class CacheState {
 data class CacheResult(
     val video: Video,
     val proxiedUrl: String,
-    val animeSource: AnimeSource
+    val animeSource: AnimeSource,
 )
 
 class CacheManager(
     val context: Context,
-    val proxyServer: ProxyServer
+    val proxyServer: ProxyServer,
 ) {
     val cacheDir = File(context.cacheDir, "/streamCache").apply { mkdirs() }
     private val httpClient = HttpClient()
@@ -58,7 +58,6 @@ class CacheManager(
 
     private val caching = MutableStateFlow(false)
     val directVideoCacheFile = File(cacheDir, "direct_video.mp4")
-
 
     suspend fun startCachingEpisode(
         animeSource: AnimeSource,
@@ -107,7 +106,7 @@ class CacheManager(
     private var keepCachingEpisode = MutableStateFlow(false)
 
     suspend fun stopCachingEpisode(): CacheResult? {
-        if(!proxyServer.started()){
+        if (!proxyServer.started()) {
             proxyServer.start()
         }
         keepCachingEpisode.update { false }
@@ -161,14 +160,16 @@ class CacheManager(
                         if (currentState is CacheState.Cache && currentState.cache is CacheData.HLSStream) {
                             currentState.copy(
                                 cache = CacheData.HLSStream(
-                                    currentState.cache.streamChunks + finishedChunks
-                                )
+                                    currentState.cache.streamChunks + finishedChunks,
+                                ),
                             )
                         } else {
                             currentState
                         }
                     }
-                    logcat { "Cached batch of ${finishedChunks.size} segments (last idx: ${finishedChunks.last().segment.idx})" }
+                    logcat {
+                        "Cached batch of ${finishedChunks.size} segments (last idx: ${finishedChunks.last().segment.idx})"
+                    }
                 }
             }
             logcat { "HLS stream caching complete for ${video.videoUrl}" }

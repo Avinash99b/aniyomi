@@ -46,7 +46,6 @@ class HLSStreamManager(
     suspend fun init(
         video: Video,
     ): List<Segment> {
-
         originalUrl = video.videoUrl
 
         segments.clear()
@@ -82,9 +81,7 @@ class HLSStreamManager(
             }
 
             when {
-
                 line.startsWith("#EXTINF:") -> {
-
                     currentDuration = line
                         .substringAfter("#EXTINF:")
                         .substringBefore(",")
@@ -99,7 +96,6 @@ class HLSStreamManager(
                  */
                 expectingSegmentUrl &&
                     !line.startsWith("#") -> {
-
                     val absoluteUrl = resolveUrl(
                         baseUrl = baseUrl,
                         path = line,
@@ -143,7 +139,6 @@ class HLSStreamManager(
         idx: Int,
         newUrl: String,
     ) {
-
         segments
             .find { it.idx == idx }
             ?.currentUrl = newUrl
@@ -154,7 +149,6 @@ class HLSStreamManager(
     }
 
     fun generateStreamFile(): File {
-
         cacheDir.mkdirs()
 
         val playlistFile = File(
@@ -163,11 +157,9 @@ class HLSStreamManager(
         )
 
         return try {
-
             if (segments.isEmpty()) {
                 fallbackOriginalPlaylist(playlistFile)
             } else {
-
                 /*
                  * Clone ORIGINAL playlist structure.
                  */
@@ -193,9 +185,7 @@ class HLSStreamManager(
 
                 playlistFile
             }
-
         } catch (_: Exception) {
-
             fallbackOriginalPlaylist(playlistFile)
         }
     }
@@ -203,7 +193,6 @@ class HLSStreamManager(
     private suspend fun resolveMediaPlaylist(
         video: Video,
     ): String {
-
         val playlistUrl = video.videoUrl
 
         val content: String = client
@@ -243,7 +232,6 @@ class HLSStreamManager(
         baseUrl: Url,
         path: String,
     ): String {
-
         return if (
             path.startsWith("http://") ||
             path.startsWith("https://")
@@ -260,7 +248,6 @@ class HLSStreamManager(
     private fun fallbackOriginalPlaylist(
         file: File,
     ): File {
-
         file.writeText(originalPlaylistContent)
 
         return file
