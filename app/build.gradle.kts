@@ -309,6 +309,11 @@ dependencies {
     implementation(aniyomilibs.seeker)
     // true type parser
     implementation(aniyomilibs.truetypeparser)
+
+    runtimeOnly("io.ktor:ktor-server-core:3.4.3")
+    implementation("io.ktor:ktor-server-cio:3.4.3")
+    runtimeOnly("io.ktor:ktor-client-core:3.4.3")
+    implementation("io.ktor:ktor-client-cio:3.4.3")
 }
 
 androidComponents {
