@@ -9,7 +9,11 @@ import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
 import eu.kanade.tachiyomi.animesource.online.ParsedAnimeHttpSource
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
+import eu.kanade.tachiyomi.ui.player.utils.PlayerCacheUtil
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import tachiyomi.domain.entries.anime.model.Anime
 import tachiyomi.domain.items.episode.model.Episode
 import tachiyomi.source.local.entries.anime.LocalAnimeSource
@@ -34,7 +38,7 @@ class EpisodeLoader {
             val isDownloaded = isDownload(episode, anime)
             return when {
                 isDownloaded -> getHostersOnDownloaded(episode, anime, source)
-                source is AnimeHttpSource -> getHostersOnHttp(episode, source)
+                source is AnimeHttpSource -> getHostersOnHttp(anime, episode, source)
                 source is LocalAnimeSource -> getHostersOnLocal(episode)
                 else -> error("source not supported")
             }
@@ -83,9 +87,28 @@ class EpisodeLoader {
          * @param episode the episode being parsed.
          * @param source the online source of the episode.
          */
-        private suspend fun getHostersOnHttp(episode: Episode, source: AnimeHttpSource): List<Hoster> {
+        private suspend fun getHostersOnHttp(anime: Anime, episode: Episode, source: AnimeHttpSource): List<Hoster> {
             // TODO(1.6): Remove else block when dropping support for ext lib <1.6
-            return if (checkHasHosters(source)) {
+            // Use cache first
+            val cache = PlayerCacheUtil.findCachedHosters(anime.id, episode.id)
+            if (cache != null) {
+                CoroutineScope(Dispatchers.IO).launch {
+                    val hosters = if (checkHasHosters(source)) {
+                        source.getHosterList(episode.toSEpisode())
+                            .let { source.run { it.sortHosters() } }
+                    } else {
+                        source.getVideoList(episode.toSEpisode())
+                            .let { source.run { it.sortVideos() } }
+                            .toHosterList()
+                    }
+                    if (hosters.isNotEmpty()) {
+                        PlayerCacheUtil.cacheHosters(anime.id, episode.id, hosters)
+                    }
+                }
+                return cache
+            }
+
+            val hosters = if (checkHasHosters(source)) {
                 source.getHosterList(episode.toSEpisode())
                     .let { source.run { it.sortHosters() } }
             } else {
@@ -93,6 +116,11 @@ class EpisodeLoader {
                     .let { source.run { it.sortVideos() } }
                     .toHosterList()
             }
+            if (hosters.isNotEmpty()) {
+                PlayerCacheUtil.cacheHosters(anime.id, episode.id, hosters)
+            }
+
+            return hosters
         }
 
         /**
@@ -146,6 +174,7 @@ class EpisodeLoader {
          * Returns a list of videos of a [hoster] based on the type of [source] used.
          * Note that for every type of episode except non-downloaded online, `videoList`
          * will be set to null.
+         * Important Note: This function sorts the videos according to users preferences if the source is an [AnimeHttpSource].
          *
          * @param source the source of the anime.
          * @param hoster the hoster.
@@ -186,6 +215,10 @@ class EpisodeLoader {
             }
         }
 
+        /***
+         * Loads the videos of a hoster, returning the state of the hoster after loading.
+         * The getVideos function internally sorts the videos according to user preferences if the source is an [AnimeHttpSource], so no need to sort them again.
+         */
         suspend fun loadHosterVideos(source: AnimeSource, hoster: Hoster, force: Boolean = false): HosterState {
             if (!force && hoster.lazy) {
                 return HosterState.Idle(hoster.hosterName)

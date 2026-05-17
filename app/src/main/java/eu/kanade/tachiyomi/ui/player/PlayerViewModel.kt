@@ -61,21 +61,25 @@ import eu.kanade.tachiyomi.data.database.models.anime.toDomainEpisode
 import eu.kanade.tachiyomi.data.database.models.manga.isRecognizedNumber
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
+import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
 import eu.kanade.tachiyomi.data.track.TrackerManager
 import eu.kanade.tachiyomi.data.track.anilist.Anilist
 import eu.kanade.tachiyomi.data.track.myanimelist.MyAnimeList
+import eu.kanade.tachiyomi.ui.player.cache.CacheManager
 import eu.kanade.tachiyomi.ui.player.controls.components.IndexedSegment
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.getChangedAt
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
+import eu.kanade.tachiyomi.ui.player.proxy.ProxyServer
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
+import eu.kanade.tachiyomi.ui.player.utils.PlayerCacheUtil
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
 import eu.kanade.tachiyomi.ui.reader.SaveImageNotifier
 import eu.kanade.tachiyomi.util.editBackground
@@ -86,10 +90,14 @@ import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.lang.takeBytes
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
+import eu.kanade.tachiyomi.util.system.notificationBuilder
+import eu.kanade.tachiyomi.util.system.notify
 import eu.kanade.tachiyomi.util.system.toast
 import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.Utils
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -100,9 +108,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import logcat.LogPriority
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchIO
@@ -127,6 +137,7 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.track.anime.interactor.GetAnimeTracks
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.R
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.source.local.entries.anime.isLocal
 import uy.kohesive.injekt.Injekt
@@ -135,6 +146,7 @@ import java.io.File
 import java.io.InputStream
 import java.util.Date
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.collections.first
 import kotlin.coroutines.cancellation.CancellationException
 
 class PlayerViewModelProviderFactory(
@@ -306,6 +318,9 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private val _primaryButton = MutableStateFlow<CustomButton?>(null)
     val primaryButton = _primaryButton.asStateFlow()
+
+    val proxyServer = ProxyServer(activity)
+    val cacheManager = CacheManager(activity, proxyServer)
 
     init {
         viewModelScope.launchIO {
@@ -1201,8 +1216,16 @@ class PlayerViewModel @JvmOverloads constructor(
         val defaultResult = InitResult(currentHosterList, qualityIndex, null)
         if (!needsInit(animeId, initialEpisodeId)) return Pair(defaultResult, Result.success(true))
         return try {
-            val anime = getAnime.await(animeId)
+            // Now implementing Caching
+            var anime = PlayerCacheUtil.findCachedAnime(animeId)
+            if (anime == null) {
+                anime = getAnime.await(animeId)
+            }
+
             if (anime != null) {
+                withContext(Dispatchers.IO) {
+                    getAnime.await(animeId)?.let { PlayerCacheUtil.cacheAnime(anime) }
+                }
                 _currentAnime.update { _ -> anime }
                 animeTitle.update { _ -> anime.title }
                 sourceManager.isInitialized.first { it }
@@ -1289,7 +1312,16 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private var hasTrackers: Boolean = false
     private val checkTrackers: (Anime) -> Unit = { anime ->
-        val tracks = runBlocking { getTracks.await(anime.id) }
+        var tracks = PlayerCacheUtil.findCachedTracks(anime.id)
+        if (tracks == null) {
+            tracks = runBlocking { getTracks.await(anime.id) }
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+
+            tracks = getTracks.await(anime.id)
+            PlayerCacheUtil.cacheTracks(anime.id, tracks)
+        }
+
         hasTrackers = tracks.isNotEmpty()
     }
 
@@ -1338,6 +1370,11 @@ class PlayerViewModel @JvmOverloads constructor(
                             _hosterState.updateAt(hosterIdx, hosterState)
 
                             if (hosterState is HosterState.Ready) {
+                                val cacheResult = cacheManager.stopCachingEpisode()
+                                val video = hosterState.videoList.first()
+                                if (video.videoUrl == cacheResult?.video?.videoUrl) {
+                                    hosterState.videoList.first().videoUrl = cacheResult.proxiedUrl
+                                }
                                 if (hosterIdx == hosterIndex) {
                                     hosterState.videoList.getOrNull(videoIndex)?.let {
                                         hasFoundPreferredVideo.set(true)
@@ -1516,39 +1553,41 @@ class PlayerViewModel @JvmOverloads constructor(
         val source: AnimeSource,
     )
 
-    suspend fun loadEpisode(episodeId: Long?): EpisodeLoadResult? {
+    suspend fun getEpisode(episodeId: Long?): EpisodeLoadResult? {
         val anime = currentAnime.value ?: return null
         val source = sourceManager.getOrStub(anime.source)
 
         val chosenEpisode = currentPlaylist.value.firstOrNull { ep -> ep.id == episodeId } ?: return null
 
-        _currentEpisode.update { _ -> chosenEpisode }
-        updateEpisode(chosenEpisode)
-
         return withIOContext {
             try {
-                val currentEpisode = currentEpisode.value ?: throw ExceptionWithStringResource(
-                    "No episode loaded",
-                    AYMR.strings.no_episode_loaded,
-                )
-                currentHosterList = EpisodeLoader.getHosters(
-                    currentEpisode.toDomainEpisode()!!,
+                val resultHosterList = EpisodeLoader.getHosters(
+                    chosenEpisode.toDomainEpisode()!!,
                     anime,
                     source,
                 )
 
-                this@PlayerViewModel.episodeId = currentEpisode.id!!
+                EpisodeLoadResult(
+                    hosterList = resultHosterList,
+                    episodeTitle = anime.title + " - " + chosenEpisode.name,
+                    source = source,
+                )
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e) { e.message ?: "Error getting links" }
+                null
             }
-
-            EpisodeLoadResult(
-                hosterList = currentHosterList,
-                episodeTitle = anime.title + " - " + chosenEpisode.name,
-                source = source,
-            )
         }
     }
+
+    suspend fun loadEpisode(episodeId: Long?): EpisodeLoadResult? {
+        val chosenEpisode = currentPlaylist.value.firstOrNull { ep -> ep.id == episodeId } ?: return null
+        _currentEpisode.update { _ -> chosenEpisode }
+        updateEpisode(chosenEpisode)
+        cachingStarted.set(false)
+        return getEpisode(episodeId)
+    }
+
+    private val cachingStarted = AtomicBoolean(false)
 
     /**
      * Called every time a second is reached in the player. Used to mark the flag of episode being
@@ -1582,6 +1621,39 @@ class PlayerViewModel @JvmOverloads constructor(
         if (inDownloadRange) {
             downloadNextEpisodes()
         }
+
+        val remainingSeconds = totalSeconds - seconds
+        if ((remainingSeconds / 1000) < 120 && !cacheManager.isCaching()) {
+            if (cachingStarted.compareAndSet(false, true)) {
+                viewModelScope.launchIO {
+                    logcat { "starting caching" }
+                    startCachingNextEpisode()
+                }
+            }
+        }
+    }
+
+    private suspend fun startCachingNextEpisode() {
+        if (cacheManager.isCaching()) {
+            logcat { "Already Caching" }
+            return
+        }
+        val currentIndex = getCurrentEpisodeIndex()
+        if (currentIndex == -1 || currentIndex >= currentPlaylist.value.lastIndex) return
+
+        val nextEpisodeId = currentPlaylist.value[currentIndex + 1].id ?: return
+        val nextEpisodeResult = getEpisode(nextEpisodeId) ?: return
+        cacheManager.startCachingEpisode(nextEpisodeResult.source, nextEpisodeResult)
+
+        val builder = activity.notificationBuilder(Notifications.CHANNEL_COMMON)
+        val notificationId: Int = -6775
+        builder.apply {
+            setContentTitle("Pre caching Episode")
+            setContentText("Caching the next episode ${nextEpisodeResult.episodeTitle}")
+            setSmallIcon(android.R.drawable.stat_sys_download)
+        }
+        logcat { "Notifying Caching start" }
+        activity.notify(notificationId, builder.build())
     }
 
     private suspend fun updateEpisodeProgressOnComplete(currentEp: Episode) {

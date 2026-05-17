@@ -10,6 +10,7 @@ import java.io.Serializable
 import java.time.Instant
 import kotlin.math.pow
 
+@kotlinx.serialization.Serializable
 @Immutable
 data class Anime(
     val id: Long,
