@@ -61,7 +61,6 @@ import eu.kanade.tachiyomi.data.database.models.anime.toDomainEpisode
 import eu.kanade.tachiyomi.data.database.models.manga.isRecognizedNumber
 import eu.kanade.tachiyomi.data.download.anime.AnimeDownloadManager
 import eu.kanade.tachiyomi.data.download.anime.model.AnimeDownload
-import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.data.saver.Image
 import eu.kanade.tachiyomi.data.saver.ImageSaver
 import eu.kanade.tachiyomi.data.saver.Location
@@ -74,7 +73,6 @@ import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.getChangedAt
 import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
-import eu.kanade.tachiyomi.ui.player.proxy.ProxyServer
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
@@ -90,8 +88,6 @@ import eu.kanade.tachiyomi.util.lang.byteSize
 import eu.kanade.tachiyomi.util.lang.takeBytes
 import eu.kanade.tachiyomi.util.storage.DiskUtil
 import eu.kanade.tachiyomi.util.storage.cacheImageDir
-import eu.kanade.tachiyomi.util.system.notificationBuilder
-import eu.kanade.tachiyomi.util.system.notify
 import eu.kanade.tachiyomi.util.system.toast
 import `is`.xyz.mpv.MPVLib
 import `is`.xyz.mpv.Utils
@@ -137,7 +133,6 @@ import tachiyomi.domain.library.service.LibraryPreferences
 import tachiyomi.domain.source.anime.service.AnimeSourceManager
 import tachiyomi.domain.track.anime.interactor.GetAnimeTracks
 import tachiyomi.i18n.MR
-import tachiyomi.i18n.R
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.source.local.entries.anime.isLocal
 import uy.kohesive.injekt.Injekt
@@ -1643,7 +1638,7 @@ class PlayerViewModel @JvmOverloads constructor(
         val nextEpisodeId = currentPlaylist.value[currentIndex + 1].id ?: return
         val nextEpisodeResult = getEpisode(nextEpisodeId) ?: return
         cacheManager.startCachingEpisode(nextEpisodeResult.source, nextEpisodeResult)
-        logcat { "Starting to cache next episode: ${nextEpisodeId} ${nextEpisodeResult.episodeTitle}" }
+        logcat { "Starting to cache next episode: $nextEpisodeId ${nextEpisodeResult.episodeTitle}" }
     }
 
     private suspend fun updateEpisodeProgressOnComplete(currentEp: Episode) {

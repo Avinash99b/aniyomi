@@ -66,13 +66,12 @@ class CacheManager(
         animeSource: AnimeSource,
         episodeLoadResult: PlayerViewModel.EpisodeLoadResult,
     ): Boolean {
-
         if (episodeLoadResult.hosterList.isNullOrEmpty()) return false
         val hoster = episodeLoadResult.hosterList.first()
         if (hoster.videoList.isNullOrEmpty()) return false
 
         val video: Video = (hoster.videoList as List<Video>).first()
-        this.video=video
+        this.video = video
         val url = video.videoUrl
 
         keepCachingEpisode.update { true }
@@ -115,14 +114,14 @@ class CacheManager(
         keepCachingEpisode.update { false }
         caching.update { false }
         if (cacheState.value is CacheState.Cache) {
-            ProxyServer.updateCache(video,(cacheState.value as CacheState.Cache).cache)
+            ProxyServer.updateCache(video, (cacheState.value as CacheState.Cache).cache)
         }
         return when (val state = cacheState.value) {
             is CacheState.NoCache -> null
             is CacheState.Cache -> when (state.cache) {
                 is CacheData.DirectVideo -> CacheResult(
                     state.video,
-                    ProxyServer.generateProxyDirectUrl(video.videoUrl,state.video.videoUrl),
+                    ProxyServer.generateProxyDirectUrl(video.videoUrl, state.video.videoUrl),
                     this.animeSource.value!!,
                 )
                 is CacheData.HLSStream -> CacheResult(
@@ -151,7 +150,7 @@ class CacheManager(
                     async {
                         if (!keepCachingEpisode.value) return@async null
                         val file = HLSCacher.cacheSegmentToFile(video.headers, segment, cacheDir)
-                        segment.currentUrl = ProxyServer.generateProxyChunkUrl(video.videoUrl,segment.idx)
+                        segment.currentUrl = ProxyServer.generateProxyChunkUrl(video.videoUrl, segment.idx)
                         StreamChunk(file, segment)
                     }
                 }
