@@ -316,8 +316,7 @@ class PlayerViewModel @JvmOverloads constructor(
     private val _primaryButton = MutableStateFlow<CustomButton?>(null)
     val primaryButton = _primaryButton.asStateFlow()
 
-    val proxyServer = ProxyServer(activity)
-    val cacheManager = CacheManager(activity, proxyServer)
+    val cacheManager = CacheManager(activity)
 
     init {
         viewModelScope.launchIO {
@@ -1649,16 +1648,7 @@ class PlayerViewModel @JvmOverloads constructor(
         val nextEpisodeId = currentPlaylist.value[currentIndex + 1].id ?: return
         val nextEpisodeResult = getEpisode(nextEpisodeId) ?: return
         cacheManager.startCachingEpisode(nextEpisodeResult.source, nextEpisodeResult)
-
-        val builder = activity.notificationBuilder(Notifications.CHANNEL_COMMON)
-        val notificationId: Int = -6775
-        builder.apply {
-            setContentTitle("Pre caching Episode")
-            setContentText("Caching the next episode ${nextEpisodeResult.episodeTitle}")
-            setSmallIcon(android.R.drawable.stat_sys_download)
-        }
-        logcat { "Notifying Caching start" }
-        activity.notify(notificationId, builder.build())
+        logcat { "Starting to cache next episode: ${nextEpisodeId} ${nextEpisodeResult.episodeTitle}" }
     }
 
     private suspend fun updateEpisodeProgressOnComplete(currentEp: Episode) {

@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.player.proxy
 
 import android.content.Context
+import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.ui.player.cache.CacheData
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -17,28 +18,28 @@ import io.ktor.server.routing.routing
 import tachiyomi.core.common.util.system.logcat
 import java.io.File
 import java.net.URLEncoder
+import java.util.concurrent.ConcurrentHashMap
 
-class ProxyServer(
-    private val context: Context,
-) {
+object ProxyServer {
 
-    private val baseUrl = "http://127.0.0.1:8080"
+    private const val baseUrl = "http://127.0.0.1:8080"
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
-    private var cacheData: CacheData? = null
+    private val sessions = ConcurrentHashMap<String, CacheData>()
 
     fun started(): Boolean {
         return server != null
     }
-    suspend fun start() {
+    fun start() {
         stop()
 
         server = embeddedServer(CIO, port = 8080) {
             routing {
                 get("/chunk/{segmentIdx}") {
-                    if (cacheData == null)return@get
+                    val videoUrl = call.queryParameters["videoUrl"]
+                    val cacheData = sessions[URLEncoder.encode(videoUrl,"UTF-8")] ?: return@get call.respond(HttpStatusCode.NotFound)
                     if (cacheData !is CacheData.HLSStream)return@get
-                    val streamChunks = (cacheData as CacheData.HLSStream).streamChunks
+                    val streamChunks = cacheData.streamChunks
                     val segmentIdx = call.parameters["segmentIdx"]?.toIntOrNull()
                         ?: return@get call.respond(HttpStatusCode.BadRequest)
                     val chunk = streamChunks.find { it.segment.idx == segmentIdx }
@@ -56,10 +57,11 @@ class ProxyServer(
                     }
                 }
                 get("/direct_video.mp4") {
-                    if (cacheData == null) return@get
+                    val videoUrl = call.queryParameters["videoUrl"]
+                    val cacheData = sessions[URLEncoder.encode(videoUrl,"UTF-8")] ?: return@get call.respond(HttpStatusCode.NotFound)
                     if (cacheData !is CacheData.DirectVideo)return@get
-                    val directVideoFile = (cacheData as CacheData.DirectVideo).file
-                    val orgUrl = call.request.queryParameters["orgUrl"]
+                    val directVideoFile = cacheData.file
+                    val orgUrl = call.queryParameters["orgUrl"]
                     if (directVideoFile.exists()) {
                         call.respondFile(directVideoFile)
                     } else if (orgUrl != null) {
@@ -69,7 +71,7 @@ class ProxyServer(
                     }
                 }
                 get("/stream_file") {
-                    val filePath = call.request.queryParameters["filePath"]
+                    val filePath = call.queryParameters["filePath"]
                     if (filePath != null) {
                         val file = File(filePath)
                         if (file.exists()) {
@@ -86,8 +88,8 @@ class ProxyServer(
         server?.start(wait = false)
     }
 
-    fun updateCache(cacheData: CacheData) {
-        this.cacheData = cacheData
+    fun updateCache(video: Video, cacheData: CacheData) {
+        this.sessions[URLEncoder.encode(video.videoUrl,"UTF-8")] = cacheData
     }
     fun stop() {
         try {
@@ -97,11 +99,13 @@ class ProxyServer(
             logcat { "ProxyServer stop error: ${e.message}" }
         } finally {
             server = null
+            sessions.clear()
         }
     }
 
-    fun generateProxyChunkUrl(segmentIdx: Int): String {
-        return "$baseUrl/chunk/$segmentIdx"
+    fun generateProxyChunkUrl(videoUrl: String, segmentIdx: Int): String {
+        val encodedUrl = URLEncoder.encode(videoUrl, "UTF-8")
+        return "$baseUrl/chunk/$segmentIdx?videoUrl=$encodedUrl"
     }
 
     fun getStreamFileUrl(absolutePath: String): String {
@@ -109,8 +113,9 @@ class ProxyServer(
         return "$baseUrl/stream_file?filePath=$encodedPath"
     }
 
-    fun generateProxyDirectUrl(orgUrl: String): String {
-        val encodedUrl = URLEncoder.encode(orgUrl, "UTF-8")
-        return "$baseUrl/direct_video.mp4?orgUrl=$encodedUrl"
+    fun generateProxyDirectUrl(videoUrl: String, orgUrl: String): String {
+        val encodedVideoUrl = URLEncoder.encode(videoUrl, "UTF-8")
+        val encodedOrgUrl = URLEncoder.encode(orgUrl, "UTF-8")
+        return "$baseUrl/direct_video.mp4?videoUrl=$encodedVideoUrl&orgUrl=$encodedOrgUrl"
     }
 }

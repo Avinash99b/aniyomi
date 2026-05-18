@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import tachiyomi.core.common.util.system.logcat
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 // How many segments to download at the same time
 private const val PARALLEL_CHUNK_COUNT = 4
@@ -47,7 +48,6 @@ data class CacheResult(
 
 class CacheManager(
     val context: Context,
-    val proxyServer: ProxyServer,
 ) {
     val cacheDir = File(context.cacheDir, "/streamCache").apply { mkdirs() }
     private val httpClient = HttpClient()
@@ -59,17 +59,20 @@ class CacheManager(
     private val caching = MutableStateFlow(false)
     val directVideoCacheFile = File(cacheDir, "direct_video.mp4")
 
+    private lateinit var video: Video
+
+    private var episodesResults = ConcurrentHashMap<String, PlayerViewModel.EpisodeLoadResult>()
     suspend fun startCachingEpisode(
         animeSource: AnimeSource,
         episodeLoadResult: PlayerViewModel.EpisodeLoadResult,
     ): Boolean {
-        proxyServer.stop()
 
         if (episodeLoadResult.hosterList.isNullOrEmpty()) return false
         val hoster = episodeLoadResult.hosterList.first()
         if (hoster.videoList.isNullOrEmpty()) return false
 
         val video: Video = (hoster.videoList as List<Video>).first()
+        this.video=video
         val url = video.videoUrl
 
         keepCachingEpisode.update { true }
@@ -106,25 +109,25 @@ class CacheManager(
     private var keepCachingEpisode = MutableStateFlow(false)
 
     suspend fun stopCachingEpisode(): CacheResult? {
-        if (!proxyServer.started()) {
-            proxyServer.start()
+        if (!ProxyServer.started()) {
+            ProxyServer.start()
         }
         keepCachingEpisode.update { false }
         caching.update { false }
         if (cacheState.value is CacheState.Cache) {
-            proxyServer.updateCache((cacheState.value as CacheState.Cache).cache)
+            ProxyServer.updateCache(video,(cacheState.value as CacheState.Cache).cache)
         }
         return when (val state = cacheState.value) {
             is CacheState.NoCache -> null
             is CacheState.Cache -> when (state.cache) {
                 is CacheData.DirectVideo -> CacheResult(
                     state.video,
-                    proxyServer.generateProxyDirectUrl(state.video.videoUrl),
+                    ProxyServer.generateProxyDirectUrl(video.videoUrl,state.video.videoUrl),
                     this.animeSource.value!!,
                 )
                 is CacheData.HLSStream -> CacheResult(
                     state.video,
-                    proxyServer.getStreamFileUrl(hlsStreamManager.generateStreamFile().absolutePath),
+                    ProxyServer.getStreamFileUrl(hlsStreamManager.generateStreamFile().absolutePath),
                     this.animeSource.value!!,
                 )
             }
@@ -148,7 +151,7 @@ class CacheManager(
                     async {
                         if (!keepCachingEpisode.value) return@async null
                         val file = HLSCacher.cacheSegmentToFile(video.headers, segment, cacheDir)
-                        segment.currentUrl = proxyServer.generateProxyChunkUrl(segment.idx)
+                        segment.currentUrl = ProxyServer.generateProxyChunkUrl(video.videoUrl,segment.idx)
                         StreamChunk(file, segment)
                     }
                 }
