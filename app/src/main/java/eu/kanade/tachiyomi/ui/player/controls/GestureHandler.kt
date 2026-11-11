@@ -126,7 +126,7 @@ fun GestureHandler(
                         if (controlsShown) viewModel.hideControls() else viewModel.showControls()
                     },
                     onDoubleTap = {
-                        if (areControlsLocked || areGesturesLocked || isDoubleTapSeeking) return@detectTapGestures
+                        if (areControlsLocked || isDoubleTapSeeking) return@detectTapGestures
                         if (it.x > size.width * 3 / 5) {
                             if (!isSeekingForwards) viewModel.updateSeekAmount(0)
                             viewModel.handleRightDoubleTap()
@@ -146,7 +146,7 @@ fun GestureHandler(
                         val press = PressInteraction.Press(
                             it.copy(x = if (it.x > size.width * 3 / 5) it.x - size.width * 0.6f else it.x),
                         )
-                        if (!areControlsLocked && !areGesturesLocked && isDoubleTapSeeking && seekAmount != 0) {
+                        if (!areControlsLocked && isDoubleTapSeeking && seekAmount != 0) {
                             if (it.x > size.width * 3 / 5) {
                                 if (!isSeekingForwards) viewModel.updateSeekAmount(0)
                                 viewModel.handleRightDoubleTap()
