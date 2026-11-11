@@ -581,45 +581,77 @@ class AnimeDownloader(
         }
 
         FFmpegKitConfig.setLogRedirectionStrategy(LogRedirectionStrategy.ALWAYS_PRINT_LOGS)
-        val ffmpegOptions = getFFmpegOptions(video, headerOptions, ffmpegFilename())
         val ffprobeCommand = { file: String, ffprobeHeaders: String? ->
+            val reconnectOpts = if (file.startsWith("http")) {
+                "$HTTP_RECONNECT_ARGS "
+            } else {
+                ""
+            }
             FFmpegKitConfig.parseArguments(
-                "${ffprobeHeaders?.plus(" ") ?: ""}-v quiet -show_entries " +
-                    "format=duration -of default=noprint_wrappers=1:nokey=1 \"$file\"",
+                "${ffprobeHeaders?.plus(" ") ?: ""}$reconnectOpts-v quiet -show_entries " +
+                    "format=format_name,duration -of default=noprint_wrappers=1 \"$file\"",
             )
         }
 
-        var duration = 0L
+        val probeInfo = runCatching {
+            probeStreamInfo(ffprobeCommand(video.videoUrl, headerOptions))
+        }.getOrNull()
+        val duration = probeInfo?.second?.toLong() ?: 0L
+        val isHls = probeInfo?.first?.contains("hls", ignoreCase = true) == true ||
+            video.videoUrl.contains(".m3u8", ignoreCase = true)
+
+        val ffmpegOptions = getFFmpegOptions(video, headerOptions, ffmpegFilename(), isHls)
+
+        var skippedSegments = 0
+        var prematureEof = false
+        var lastOutTime = 0L
 
         val logCallback = LogCallback { log ->
             if (log.level <= Level.AV_LOG_WARNING) {
-                log.message?.let {
-                    logcat(LogPriority.ERROR) { it }
+                log.message?.let { msg ->
+                    if (
+                        msg.contains("failed too many times, skipping") ||
+                        msg.contains("Unable to open key file") ||
+                        msg.contains("Unable to read key file") ||
+                        msg.contains("Error when loading first segment")
+                    ) {
+                        skippedSegments++
+                    }
+                    if (msg.contains("Stream ends prematurely")) {
+                        prematureEof = true
+                    }
+                    logcat(LogPriority.ERROR) { msg }
                 }
             }
         }
 
         val statCallback = StatisticsCallback { s ->
             val outTime = (s.time / 1000.0).toLong()
+            if (outTime > lastOutTime) {
+                lastOutTime = outTime
+            }
 
             if (duration != 0L && outTime > 0) {
                 download.progress = (100 * outTime / duration).toInt()
             }
         }
 
-        duration = getDuration(ffprobeCommand(video.videoUrl, headerOptions))?.toLong() ?: 0L
-
         suspendCancellableCoroutine { continuation ->
             val session = FFmpegKit.executeWithArgumentsAsync(
                 ffmpegOptions,
                 {
-                    if (it.returnCode.isValueSuccess) {
-                        tmpDir.findFile("$filename.tmp")?.apply {
-                            renameTo("$filename.mkv")
-                        }
-                        continuation.resume(it)
-                    } else {
+                    if (!it.returnCode.isValueSuccess) {
                         continuation.resumeWithException(Exception("Error in ffmpeg!"))
+                    } else if (skippedSegments > 0) {
+                        continuation.resumeWithException(
+                            Exception("HLS download incomplete ($skippedSegments segment(s) skipped)"),
+                        )
+                    } else if (prematureEof) {
+                        continuation.resumeWithException(
+                            Exception("Download stream ended prematurely"),
+                        )
+                    } else {
+                        continuation.resume(it)
                     }
                 },
                 logCallback,
@@ -629,13 +661,38 @@ class AnimeDownloader(
                 session.cancel()
             }
         }
+
+        if (duration > 0L) {
+            val outputDuration = runCatching {
+                probeStreamInfo(ffprobeCommand(ffmpegFilename(), null)).second?.toLong()
+            }.getOrNull() ?: lastOutTime
+            val maxAllowedShortfall = maxOf(5L, (duration * 0.05).toLong())
+            if (outputDuration <= 0L || (duration - outputDuration) > maxAllowedShortfall) {
+                throw Exception(
+                    "Downloaded video is truncated (${outputDuration}s of ${duration}s expected)",
+                )
+            }
+        }
+
+        tmpDir.findFile("$filename.tmp")?.apply {
+            renameTo("$filename.mkv")
+        }
     }
 
-    private fun getFFmpegOptions(video: Video, headerOptions: String, ffmpegFilename: String): Array<String> {
+    private fun getFFmpegOptions(
+        video: Video,
+        headerOptions: String,
+        ffmpegFilename: String,
+        isHls: Boolean = false,
+    ): Array<String> {
         fun formatInputs(tracks: List<Track>) = tracks.joinToString(" ", postfix = " ") {
             buildList {
                 if (it.url.startsWith("http")) {
                     add(headerOptions)
+                    add(HTTP_RECONNECT_ARGS)
+                    if (it.url.contains(".m3u8", ignoreCase = true)) {
+                        add(HLS_DEMUXER_ARGS)
+                    }
                 }
                 add("-i")
                 add("\"${it.url}\"")
@@ -668,6 +725,10 @@ class AnimeDownloader(
         val videoInput = buildList {
             if (video.videoUrl.startsWith("http")) {
                 add(headerOptions)
+                add(HTTP_RECONNECT_ARGS)
+                if (isHls) {
+                    add(HLS_DEMUXER_ARGS)
+                }
             }
             add(sourceStreamOptions)
             add("-i")
@@ -687,8 +748,8 @@ class AnimeDownloader(
         return FFmpegKitConfig.parseArguments(command)
     }
 
-    private suspend fun getDuration(ffprobeCommand: Array<String>): Float? {
-        return suspendCancellableCoroutine { continuation ->
+    private suspend fun probeStreamInfo(ffprobeCommand: Array<String>): Pair<String?, Float?> {
+        val output = suspendCancellableCoroutine { continuation ->
             val session = FFprobeKit.executeWithArgumentsAsync(ffprobeCommand) {
                 if (it.returnCode.isValueSuccess) {
                     continuation.resume(it)
@@ -697,7 +758,17 @@ class AnimeDownloader(
                 }
             }
             continuation.invokeOnCancellation { session.cancel() }
-        }.output.toFloatOrNull()
+        }.output
+        var formatName: String? = null
+        var duration: Float? = null
+        output?.lineSequence()?.forEach { line ->
+            when {
+                line.startsWith("format_name=") -> formatName = line.substringAfter("format_name=").trim()
+                line.startsWith("duration=") -> duration = line.substringAfter("duration=").trim().toFloatOrNull()
+                else -> if (duration == null) duration = line.trim().toFloatOrNull()
+            }
+        }
+        return formatName to duration
     }
 
     /**
@@ -940,6 +1011,11 @@ class AnimeDownloader(
         const val WARNING_NOTIF_TIMEOUT_MS = 30_000L
         const val EPISODES_PER_SOURCE_QUEUE_WARNING_THRESHOLD = 10
         private const val DOWNLOADS_QUEUED_WARNING_THRESHOLD = 20
+        private const val HTTP_RECONNECT_ARGS =
+            "-reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 " +
+                "-reconnect_on_http_error 4xx,5xx -reconnect_delay_max 7 -rw_timeout 30000000"
+        private const val HLS_DEMUXER_ARGS =
+            "-seg_max_retry 10 -max_reload 1000 -allowed_extensions ALL"
     }
 }
 

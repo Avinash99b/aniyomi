@@ -134,10 +134,26 @@ class AniyomiMPVView(context: Context, attributes: AttributeSet) : BaseMPVView(c
         MPVLib.setOptionString("tls-verify", "yes")
         MPVLib.setOptionString("tls-ca-file", "${context.filesDir.path}/${PlayerActivity.MPV_DIR}/cacert.pem")
 
-        // Limit demuxer cache since the defaults are too high for mobile devices
+        // Limit demuxer cache since the defaults are too high for mobile devices,
+        // and pace forward readahead so HLS CDNs do not trigger HTTP 429 burst rate-limiting.
         val cacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 64 else 32
+        val backCacheMegs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) 16 else 8
         MPVLib.setOptionString("demuxer-max-bytes", "${cacheMegs * 1024 * 1024}")
-        MPVLib.setOptionString("demuxer-max-back-bytes", "${cacheMegs * 1024 * 1024}")
+        MPVLib.setOptionString("demuxer-max-back-bytes", "${backCacheMegs * 1024 * 1024}")
+        MPVLib.setOptionString("demuxer-donate-buffer", "no")
+        MPVLib.setOptionString("cache-secs", "60")
+        MPVLib.setOptionString("demuxer-hysteresis-secs", "15")
+
+        // Enable HTTP reconnect with exponential backoff and HLS segment retries.
+        // mpv's demux_lavf propagates demuxer-lavf-o / stream-lavf-o to nested HLS segment opens.
+        val networkLavfOptions =
+            "reconnect=1,reconnect_streamed=1,reconnect_on_network_error=1," +
+                "reconnect_on_http_error=\"4xx,5xx\",reconnect_delay_max=7"
+        MPVLib.setOptionString("stream-lavf-o", networkLavfOptions)
+        MPVLib.setOptionString(
+            "demuxer-lavf-o",
+            "$networkLavfOptions,seg_max_retry=10,max_reload=1000,allowed_extensions=ALL",
+        )
         //
         val screenshotDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
         screenshotDir.mkdirs()

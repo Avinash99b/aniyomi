@@ -56,6 +56,12 @@ class PlayerObserver(val activity: PlayerActivity) :
             else -> LogPriority.VERBOSE
         }
         if (text.contains("HTTP error")) httpError = text
+        if (text.contains("failed too many times, skipping")) {
+            val detail = httpError?.trim() ?: text.trim()
+            activity.runOnUiThread {
+                activity.toast("Stream segment skipped: $detail", Toast.LENGTH_LONG)
+            }
+        }
         logcat.logcat("mpv/$prefix", logPriority) { text }
     }
 }
