@@ -106,6 +106,7 @@ fun PlayerControls(
 
     val controlsShown by viewModel.controlsShown.collectAsState()
     val areControlsLocked by viewModel.areControlsLocked.collectAsState()
+    val areGesturesLocked by viewModel.areGesturesLocked.collectAsState()
     val seekBarShown by viewModel.seekBarShown.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val isLoadingEpisode by viewModel.isLoadingEpisode.collectAsState()
@@ -546,6 +547,8 @@ fun PlayerControls(
                     BottomLeftPlayerControls(
                         playbackSpeed,
                         currentChapter = currentChapter?.toSegment(),
+                        areGesturesLocked = areGesturesLocked,
+                        onToggleGestureLock = viewModel::toggleGesturesLock,
                         onLockControls = viewModel::lockControls,
                         onCycleRotation = viewModel::cycleScreenRotations,
                         onPlaybackSpeedChange = {

@@ -89,6 +89,7 @@ fun GestureHandler(
     val position by viewModel.pos.collectAsState()
     val controlsShown by viewModel.controlsShown.collectAsState()
     val areControlsLocked by viewModel.areControlsLocked.collectAsState()
+    val areGesturesLocked by viewModel.areGesturesLocked.collectAsState()
     val seekAmount by viewModel.doubleTapSeekAmount.collectAsState()
     val isSeekingForwards by viewModel.isSeekingForwards.collectAsState()
     var isDoubleTapSeeking by remember { mutableStateOf(false) }
@@ -118,14 +119,14 @@ fun GestureHandler(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeGestures)
-            .pointerInput(Unit) {
+            .pointerInput(areControlsLocked, areGesturesLocked) {
                 val originalSpeed = viewModel.playbackSpeed.value
                 detectTapGestures(
                     onTap = {
                         if (controlsShown) viewModel.hideControls() else viewModel.showControls()
                     },
                     onDoubleTap = {
-                        if (areControlsLocked || isDoubleTapSeeking) return@detectTapGestures
+                        if (areControlsLocked || areGesturesLocked || isDoubleTapSeeking) return@detectTapGestures
                         if (it.x > size.width * 3 / 5) {
                             if (!isSeekingForwards) viewModel.updateSeekAmount(0)
                             viewModel.handleRightDoubleTap()
@@ -145,7 +146,7 @@ fun GestureHandler(
                         val press = PressInteraction.Press(
                             it.copy(x = if (it.x > size.width * 3 / 5) it.x - size.width * 0.6f else it.x),
                         )
-                        if (!areControlsLocked && isDoubleTapSeeking && seekAmount != 0) {
+                        if (!areControlsLocked && !areGesturesLocked && isDoubleTapSeeking && seekAmount != 0) {
                             if (it.x > size.width * 3 / 5) {
                                 if (!isSeekingForwards) viewModel.updateSeekAmount(0)
                                 viewModel.handleRightDoubleTap()
@@ -168,7 +169,7 @@ fun GestureHandler(
                         interactionSource.emit(PressInteraction.Release(press))
                     },
                     onLongPress = {
-                        if (areControlsLocked) return@detectTapGestures
+                        if (areControlsLocked || areGesturesLocked) return@detectTapGestures
                         if (!isLongPressing) {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             isLongPressing = true
@@ -178,8 +179,8 @@ fun GestureHandler(
                     },
                 )
             }
-            .pointerInput(areControlsLocked) {
-                if (!seekGesture || areControlsLocked) return@pointerInput
+            .pointerInput(areControlsLocked, areGesturesLocked) {
+                if (!seekGesture || areControlsLocked || areGesturesLocked) return@pointerInput
                 var startingPosition = position.toInt()
                 var startingX = 0f
                 var wasPlayerAlreadyPause = false
@@ -215,8 +216,8 @@ fun GestureHandler(
                     if (showSeekbar) viewModel.showSeekBar()
                 }
             }
-            .pointerInput(areControlsLocked) {
-                if (!gestureVolumeBrightness || areControlsLocked) return@pointerInput
+            .pointerInput(areControlsLocked, areGesturesLocked) {
+                if (!gestureVolumeBrightness || areControlsLocked || areGesturesLocked) return@pointerInput
                 var startingY = 0f
                 var mpvVolumeStartingY = 0f
                 var originalVolume = currentVolume

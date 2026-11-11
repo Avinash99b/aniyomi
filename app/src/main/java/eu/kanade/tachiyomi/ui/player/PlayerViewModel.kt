@@ -279,6 +279,8 @@ class PlayerViewModel @JvmOverloads constructor(
     val seekBarShown = _seekBarShown.asStateFlow()
     private val _areControlsLocked = MutableStateFlow(false)
     val areControlsLocked = _areControlsLocked.asStateFlow()
+    private val _areGesturesLocked = MutableStateFlow(false)
+    val areGesturesLocked = _areGesturesLocked.asStateFlow()
 
     val playerUpdate = MutableStateFlow<PlayerUpdates>(PlayerUpdates.None)
     val isBrightnessSliderShown = MutableStateFlow(false)
@@ -696,6 +698,10 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun unlockControls() {
         _areControlsLocked.update { false }
+    }
+
+    fun toggleGesturesLock() {
+        _areGesturesLocked.update { !it }
     }
 
     fun dismissSheet() {
